@@ -1,0 +1,6 @@
+{
+  "name": "Labs - Virtual Science Laboratory",
+  "description": "Virtual science laboratory for interactive scientific experiments in chemistry and physics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
