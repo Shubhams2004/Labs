@@ -1,14 +1,46 @@
 import React, { useState } from 'react';
 import { Menu, X } from 'lucide-react';
 
-export const Navbar: React.FC = () => {
+interface NavbarProps {
+  currentView?: 'home' | 'catalogue' | 'workspace';
+  onNavigateHome?: () => void;
+  onNavigateCatalogue?: () => void;
+}
+
+export const Navbar: React.FC<NavbarProps> = ({
+  currentView = 'home',
+  onNavigateHome,
+  onNavigateCatalogue,
+}) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const scrollToSection = (id: string) => {
     setMobileMenuOpen(false);
+    if (currentView !== 'home' && onNavigateHome) {
+      onNavigateHome();
+      setTimeout(() => {
+        const element = document.getElementById(id);
+        if (element) element.scrollIntoView({ behavior: 'smooth' });
+      }, 50);
+      return;
+    }
     const element = document.getElementById(id);
     if (element) {
       element.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  const handleBrandClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (onNavigateHome) onNavigateHome();
+  };
+
+  const handleChemistryClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (onNavigateCatalogue) {
+      onNavigateCatalogue();
+    } else {
+      scrollToSection('chemistry');
     }
   };
 
@@ -18,6 +50,7 @@ export const Navbar: React.FC = () => {
         {/* Zone 1: Brand Title (Single text element wordmark) */}
         <a
           href="#"
+          onClick={handleBrandClick}
           className="text-xl font-bold tracking-tight text-slate-900 hover:text-blue-700 transition-colors"
         >
           Labs
@@ -45,16 +78,14 @@ export const Navbar: React.FC = () => {
           >
             Capabilities
           </a>
-          <a
-            href="#chemistry"
-            onClick={(e) => {
-              e.preventDefault();
-              scrollToSection('chemistry');
-            }}
-            className="hover:text-slate-900 transition-colors whitespace-nowrap"
+          <button
+            onClick={handleChemistryClick}
+            className={`hover:text-slate-900 transition-colors whitespace-nowrap cursor-pointer ${
+              currentView === 'catalogue' ? 'text-blue-700 font-semibold' : ''
+            }`}
           >
             Chemistry
-          </a>
+          </button>
           <a
             href="#how-it-works"
             onClick={(e) => {
@@ -80,7 +111,13 @@ export const Navbar: React.FC = () => {
         {/* Zone 3: Primary Action & Mobile Toggle */}
         <div className="flex items-center gap-3">
           <button
-            onClick={() => scrollToSection('chemistry')}
+            onClick={() => {
+              if (onNavigateCatalogue) {
+                onNavigateCatalogue();
+              } else {
+                scrollToSection('chemistry');
+              }
+            }}
             className="hidden sm:inline-flex items-center justify-center px-4 py-2 text-xs font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors whitespace-nowrap cursor-pointer shadow-xs"
           >
             Explore Experiments
@@ -100,7 +137,10 @@ export const Navbar: React.FC = () => {
       {mobileMenuOpen && (
         <div className="md:hidden border-b border-slate-200 bg-white px-4 pt-3 pb-5 space-y-2 text-sm font-medium">
           <button
-            onClick={() => scrollToSection('overview')}
+            onClick={() => {
+              setMobileMenuOpen(false);
+              if (onNavigateHome) onNavigateHome();
+            }}
             className="block w-full text-left py-2 px-3 rounded text-slate-700 hover:bg-slate-100"
           >
             Overview
@@ -112,10 +152,13 @@ export const Navbar: React.FC = () => {
             Capabilities
           </button>
           <button
-            onClick={() => scrollToSection('chemistry')}
+            onClick={() => {
+              setMobileMenuOpen(false);
+              if (onNavigateCatalogue) onNavigateCatalogue();
+            }}
             className="block w-full text-left py-2 px-3 rounded text-slate-700 hover:bg-slate-100"
           >
-            Chemistry Experiments
+            Chemistry Catalogue
           </button>
           <button
             onClick={() => scrollToSection('how-it-works')}
@@ -131,7 +174,10 @@ export const Navbar: React.FC = () => {
           </button>
           <div className="pt-2">
             <button
-              onClick={() => scrollToSection('chemistry')}
+              onClick={() => {
+                setMobileMenuOpen(false);
+                if (onNavigateCatalogue) onNavigateCatalogue();
+              }}
               className="w-full py-2.5 px-4 text-xs font-semibold text-white bg-slate-900 rounded-lg text-center"
             >
               Explore Experiments

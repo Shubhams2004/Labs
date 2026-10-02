@@ -3,7 +3,15 @@ import { CHEMISTRY_EXPERIMENTS, Experiment } from '../data/experiments';
 import { ExperimentModal } from './ExperimentModal';
 import { ArrowUpRight, Clock, Beaker, FileText } from 'lucide-react';
 
-export const ChemistrySection: React.FC = () => {
+interface ChemistrySectionProps {
+  onNavigateCatalogue?: () => void;
+  onOpenWorkspace?: (experimentId: string) => void;
+}
+
+export const ChemistrySection: React.FC<ChemistrySectionProps> = ({
+  onNavigateCatalogue,
+  onOpenWorkspace,
+}) => {
   const [selectedExperiment, setSelectedExperiment] = useState<Experiment | null>(null);
 
   return (
@@ -28,9 +36,19 @@ export const ChemistrySection: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex items-center gap-2 text-xs font-mono text-slate-500 bg-slate-50 px-3.5 py-2 rounded-lg border border-slate-200 shrink-0 self-start md:self-auto">
-            <Clock className="w-3.5 h-3.5 text-amber-600" />
-            <span>5 Core Experiments in Active Protocol Design</span>
+          <div className="flex flex-wrap items-center gap-2 shrink-0 self-start md:self-auto">
+            <div className="flex items-center gap-2 text-xs font-mono text-slate-500 bg-slate-50 px-3.5 py-2 rounded-lg border border-slate-200">
+              <Clock className="w-3.5 h-3.5 text-amber-600" />
+              <span>5 Core Experiments in Active Protocol Design</span>
+            </div>
+            {onNavigateCatalogue && (
+              <button
+                onClick={onNavigateCatalogue}
+                className="px-3.5 py-2 text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg transition-colors cursor-pointer"
+              >
+                Open Full Catalogue →
+              </button>
+            )}
           </div>
         </div>
 
@@ -52,10 +70,17 @@ export const ChemistrySection: React.FC = () => {
                     <span>{exp.category}</span>
                   </div>
 
-                  {/* Clearly marked as Coming Soon */}
-                  <span className="text-[11px] font-mono font-medium text-amber-700 bg-amber-50/80 px-2 py-0.5 rounded border border-amber-200/80">
-                    Coming Soon
-                  </span>
+                  {/* Status badge: Functional for Acid-Base Titration, Coming Soon for others */}
+                  {index === 0 ? (
+                    <span className="text-[11px] font-mono font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                      <span>Simulation Active</span>
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-mono font-medium text-amber-700 bg-amber-50/80 px-2 py-0.5 rounded border border-amber-200/80">
+                      Coming Soon
+                    </span>
+                  )}
                 </div>
 
                 {/* Title */}
@@ -101,7 +126,17 @@ export const ChemistrySection: React.FC = () => {
                   <ArrowUpRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-700" />
                 </button>
 
-                <span className="text-[11px] font-mono text-slate-400">Phase 1</span>
+                {index === 0 && onOpenWorkspace ? (
+                  <button
+                    onClick={() => onOpenWorkspace(exp.id)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-xs transition-colors cursor-pointer"
+                  >
+                    <span>Launch Experiment</span>
+                    <ArrowUpRight className="w-3.5 h-3.5 text-blue-400" />
+                  </button>
+                ) : (
+                  <span className="text-[11px] font-mono text-slate-400">Phase 1</span>
+                )}
               </div>
             </div>
           ))}
