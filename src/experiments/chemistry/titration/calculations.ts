@@ -59,6 +59,14 @@ export interface ChemicalStateResult {
   assumptions: string[];
 }
 
+export interface ScientificConclusionResult {
+  status: string;
+  verdict: 'successful' | 'acceptable' | 'unsuccessful' | 'insufficient';
+  text: string;
+  isSuccessful: boolean;
+  notes: string[];
+}
+
 export interface EquivalenceAnalysisResult {
   hasEnoughData: boolean;
   minPointsRequired: number;
@@ -67,11 +75,14 @@ export interface EquivalenceAnalysisResult {
   theoreticalAnalyteConcentrationM: number;
   estimatedEquivalenceVolumeMl: number | null;
   estimatedAnalyteConcentrationM: number | null;
+  absoluteErrorVolumeMl: number | null;
+  absoluteErrorConcentrationM: number | null;
   volumeErrorPercent: number | null;
   concentrationErrorPercent: number | null;
   maxDerivativeValue: number | null;
   inflectionPointIndex: number | null;
   message: string;
+  conclusion?: ScientificConclusionResult;
 }
 
 /**
@@ -300,6 +311,8 @@ export function analyzeObservationResults(
       theoreticalAnalyteConcentrationM: analyteConcentrationM,
       estimatedEquivalenceVolumeMl: null,
       estimatedAnalyteConcentrationM: null,
+      absoluteErrorVolumeMl: null,
+      absoluteErrorConcentrationM: null,
       volumeErrorPercent: null,
       concentrationErrorPercent: null,
       maxDerivativeValue: null,
@@ -342,6 +355,8 @@ export function analyzeObservationResults(
       theoreticalAnalyteConcentrationM: analyteConcentrationM,
       estimatedEquivalenceVolumeMl: null,
       estimatedAnalyteConcentrationM: null,
+      absoluteErrorVolumeMl: null,
+      absoluteErrorConcentrationM: null,
       volumeErrorPercent: null,
       concentrationErrorPercent: null,
       maxDerivativeValue: maxDerivative,
@@ -358,19 +373,31 @@ export function analyzeObservationResults(
     titrantConcentrationM
   );
 
+  const absoluteErrorVolumeMl =
+    Math.abs(estimatedEquivalenceVolumeMl - theoreticalEquivalenceVolumeMl);
+
+  const absoluteErrorConcentrationM =
+    Math.abs(estimatedAnalyteConcentrationM - analyteConcentrationM);
+
   const volumeErrorPercent =
     theoreticalEquivalenceVolumeMl > 0
-      ? (Math.abs(estimatedEquivalenceVolumeMl - theoreticalEquivalenceVolumeMl) /
-          theoreticalEquivalenceVolumeMl) *
-        100
+      ? (absoluteErrorVolumeMl / theoreticalEquivalenceVolumeMl) * 100
       : 0;
 
   const concentrationErrorPercent =
     analyteConcentrationM > 0
-      ? (Math.abs(estimatedAnalyteConcentrationM - analyteConcentrationM) /
-          analyteConcentrationM) *
-        100
+      ? (absoluteErrorConcentrationM / analyteConcentrationM) * 100
       : 0;
+
+  const conclusion = evaluateScientificConclusion(
+    pointsRecorded,
+    estimatedEquivalenceVolumeMl,
+    theoreticalEquivalenceVolumeMl,
+    estimatedAnalyteConcentrationM,
+    analyteConcentrationM,
+    volumeErrorPercent,
+    false
+  );
 
   return {
     hasEnoughData: true,
@@ -380,10 +407,80 @@ export function analyzeObservationResults(
     theoreticalAnalyteConcentrationM: analyteConcentrationM,
     estimatedEquivalenceVolumeMl,
     estimatedAnalyteConcentrationM,
+    absoluteErrorVolumeMl,
+    absoluteErrorConcentrationM,
     volumeErrorPercent,
     concentrationErrorPercent,
     maxDerivativeValue: maxDerivative,
     inflectionPointIndex: inflectionIndex,
     message: 'Equivalence point successfully derived from observation inflection.',
+    conclusion,
+  };
+}
+
+/**
+ * Objective scientific conclusion generator based strictly on experimental measurement data.
+ */
+export function evaluateScientificConclusion(
+  pointsRecorded: number,
+  estimatedVolumeMl: number | null,
+  theoreticalVolumeMl: number,
+  estimatedConcM: number | null,
+  theoreticalConcM: number,
+  volumeErrorPercent: number | null,
+  isUserSpecifiedEndpoint: boolean = false
+): ScientificConclusionResult {
+  if (pointsRecorded < 4 || estimatedVolumeMl === null || volumeErrorPercent === null) {
+    return {
+      status: 'Inconclusive: Insufficient Observation Data',
+      verdict: 'insufficient',
+      isSuccessful: false,
+      text: 'The experiment has fewer than 4 recorded observations or lacks measurements across the critical neutralization region. Additional trials across the 24.0–26.0 mL interval are required to substantiate an analytical conclusion.',
+      notes: [
+        'Record baseline trials at 0.00 mL and early pre-equivalence (5–15 mL).',
+        'Add dropwise measurements (0.05–0.10 mL) between 24.0 and 25.5 mL.',
+        'Record at least 2 trials past 26.0 mL to establish the upper alkaline plateau.',
+      ],
+    };
+  }
+
+  const absVolError = Math.abs(estimatedVolumeMl - theoreticalVolumeMl);
+
+  if (volumeErrorPercent <= 2.0) {
+    return {
+      status: 'Experiment Successful — Analytical Grade Precision',
+      verdict: 'successful',
+      isSuccessful: true,
+      text: `The experimental ${isUserSpecifiedEndpoint ? 'endpoint' : 'inflection point'} was determined at ${estimatedVolumeMl.toFixed(2)} mL, closely matching the stoichiometric theoretical equivalence point (${theoreticalVolumeMl.toFixed(2)} mL). The absolute error of ${absVolError.toFixed(2)} mL (percentage error: ${volumeErrorPercent.toFixed(2)}%) lies comfortably within the combined expanded uncertainty (±0.06 mL) of Class-A volumetric glassware and digital potentiometric sensing. The derived HCl molarity of ${estimatedConcM?.toFixed(4)} M accurately confirms the nominal concentration of ${theoreticalConcM.toFixed(4)} M.`,
+      notes: [
+        'Excellent endpoint identification within single-drop resolution.',
+        'Phenolphthalein color transition aligned with stoichiometric inflection.',
+        'Method confirmed suitable for quantitative volumetric titration.',
+      ],
+    };
+  }
+
+  if (volumeErrorPercent <= 5.0) {
+    return {
+      status: 'Experiment Acceptable — Minor Systematic Offset',
+      verdict: 'acceptable',
+      isSuccessful: true,
+      text: `The titration yielded an experimental endpoint of ${estimatedVolumeMl.toFixed(2)} mL compared to theoretical ${theoreticalVolumeMl.toFixed(2)} mL (percentage error: ${volumeErrorPercent.toFixed(2)}%, absolute error: ${absVolError.toFixed(2)} mL). The small deviation reflects standard laboratory drop volume limitations (one drop ≈ 0.05 mL) or minor visual delay in detecting the faint pale pink color transition.`,
+      notes: [
+        'Derived concentration shows acceptable agreement within introductory laboratory benchmarks.',
+        'For higher analytical accuracy, use smaller micro-drop increments near 24.8 mL.',
+      ],
+    };
+  }
+
+  return {
+    status: 'Experiment Unsuccessful — Significant Over-Titration Detected',
+    verdict: 'unsuccessful',
+    isSuccessful: false,
+    text: `The experimental endpoint (${estimatedVolumeMl.toFixed(2)} mL) deviated significantly from the theoretical stoichiometric point (${theoreticalVolumeMl.toFixed(2)} mL) with a percentage error of ${volumeErrorPercent.toFixed(2)}% (absolute error: ${absVolError.toFixed(2)} mL). The recorded data indicates that excess NaOH was added well past the inflection point into the deep magenta region, resulting in a substantial overestimation of the hydrochloric acid concentration (${estimatedConcM?.toFixed(4)} M vs ${theoreticalConcM.toFixed(4)} M). In professional analytical practice, this run must be repeated with finer control.`,
+    notes: [
+      'Stopcock was opened too rapidly or increments exceeded recommended dropwise control.',
+      'Always cease titrant addition upon the first permanent faint pink tint, before dark magenta develops.',
+    ],
   };
 }

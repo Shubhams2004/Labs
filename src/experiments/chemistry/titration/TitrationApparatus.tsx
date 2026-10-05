@@ -3,18 +3,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { ChemicalStateResult } from './calculations';
 import {
   Droplet,
   RotateCcw,
   PlusCircle,
-  HelpCircle,
   Info,
-  CheckCircle2,
-  Gauge,
+  ZoomIn,
   Sliders,
-  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+  HelpCircle,
+  Layers,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { formatNumber } from '../../../utils/formatters';
 
@@ -24,10 +27,21 @@ interface TitrationApparatusProps {
   titrantVolumeMl: number;
   titrantConcentrationM: number;
   analyteConcentrationM: number;
+  initialBuretteReading?: number;
+  finalBuretteReading?: number | null;
   onAddTitrant: (deltaMl: number) => void;
   onSetTitrantVolume: (volumeMl: number) => void;
   onResetTitration: () => void;
-  onRecordObservation: () => void;
+  onRecordObservation: (observationData: {
+    buretteReading: number;
+    volumeDelivered: number;
+    pH: number;
+    indicatorState: string;
+    note?: string;
+    isEndpoint?: boolean;
+  }) => void;
+  onMarkEndpoint?: (reading: number) => void;
+  totalRecordsCount: number;
 }
 
 export const TitrationApparatus: React.FC<TitrationApparatusProps> = ({
@@ -36,38 +50,85 @@ export const TitrationApparatus: React.FC<TitrationApparatusProps> = ({
   titrantVolumeMl,
   titrantConcentrationM,
   analyteConcentrationM,
+  initialBuretteReading = 0.0,
+  finalBuretteReading = null,
   onAddTitrant,
   onSetTitrantVolume,
   onResetTitration,
   onRecordObservation,
+  onMarkEndpoint,
+  totalRecordsCount,
 }) => {
   const [isDripping, setIsDripping] = useState(false);
-  const [recentDelta, setRecentDelta] = useState<number | null>(null);
+  const [showLoupe, setShowLoupe] = useState(true);
+  const [showUncertaintyDetails, setShowUncertaintyDetails] = useState(false);
+  const [selectedNote, setSelectedNote] = useState<string>('');
+  const [isMarkingEndpoint, setIsMarkingEndpoint] = useState(false);
+
+  // Burette capacity: 50.00 mL
+  const buretteCapacity = 50.0;
+  // Volume delivered is cumulative NaOH added
+  const volumeDelivered = Math.min(50.0, Math.max(0.0, titrantVolumeMl));
+  // In a real burette, 0.00 mL is at the top. The reading increases as the liquid level drops.
+  const currentBuretteReading = Math.min(
+    buretteCapacity,
+    initialBuretteReading + volumeDelivered
+  );
+  const remainingInBurette = Math.max(0.0, buretteCapacity - currentBuretteReading);
+
+  // Meniscus position: 0 mL is at top (y=25), 50 mL is at bottom (y=180)
+  // Distance span = 155px
+  const meniscusSvgY = 25 + (currentBuretteReading / buretteCapacity) * 155;
+  const liquidBottomY = 182;
+  const liquidHeight = Math.max(0, liquidBottomY - meniscusSvgY);
+
+  // Conical flask total volume (initial HCl + delivered NaOH)
+  const flaskVolume = analyteVolumeMl + volumeDelivered;
+  // Scaled liquid height inside flask SVG: 25 mL => 32px, 75 mL => 75px
+  const flaskLiquidHeight = Math.min(82, 32 + ((flaskVolume - 25) / 50) * 48);
+
+  // Realistic experimental measurements incorporating instrument resolution
+  // Burette reading resolution: 0.01-0.02 mL (Class-A 0.1 mL graduations estimated)
+  const experimentalBuretteReading = parseFloat(currentBuretteReading.toFixed(2));
+  const experimentalDeliveredVolume = parseFloat(volumeDelivered.toFixed(2));
+  // pH meter resolution: 0.01 pH unit
+  const experimentalMeasuredPH = parseFloat(chemicalState.pH.toFixed(2));
 
   const handleAdd = (amount: number) => {
-    setRecentDelta(amount);
     setIsDripping(true);
     onAddTitrant(amount);
     setTimeout(() => {
       setIsDripping(false);
-    }, 600);
+    }, 550);
   };
 
-  // Burette volume calculations: 50 mL total capacity
-  const buretteCapacity = 50.0;
-  const buretteReading = Math.min(50.0, Math.max(0.0, titrantVolumeMl));
-  const remainingInBurette = Math.max(0.0, buretteCapacity - buretteReading);
-  const buretteLiquidHeightPercent = (remainingInBurette / buretteCapacity) * 100;
+  const handleRecord = () => {
+    const isEndpoint =
+      isMarkingEndpoint ||
+      selectedNote.toLowerCase().includes('end') ||
+      (chemicalState.pH >= 8.2 && chemicalState.pH <= 9.2);
 
-  // Flask volume calculation: base 25 mL up to 75 mL max
-  const flaskVolume = analyteVolumeMl + titrantVolumeMl;
-  // Scaled height inside flask SVG: 25 mL => 35px height, 75 mL => 75px height
-  const flaskLiquidHeight = Math.min(85, 30 + ((flaskVolume - 25) / 50) * 50);
+    onRecordObservation({
+      buretteReading: experimentalBuretteReading,
+      volumeDelivered: experimentalDeliveredVolume,
+      pH: experimentalMeasuredPH,
+      indicatorState: chemicalState.indicatorLabel,
+      note: selectedNote || (isEndpoint ? 'Permanent pale pink endpoint' : undefined),
+      isEndpoint,
+    });
+
+    if (isEndpoint && onMarkEndpoint) {
+      onMarkEndpoint(experimentalBuretteReading);
+    }
+
+    setIsMarkingEndpoint(false);
+    setSelectedNote('');
+  };
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden flex flex-col h-full">
-      {/* Top Console Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-slate-50 border-b border-slate-200">
+      {/* Top Laboratory Bench Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200">
         <div className="flex items-center gap-2">
           <div
             className={`w-2.5 h-2.5 rounded-full ${
@@ -78,19 +139,31 @@ export const TitrationApparatus: React.FC<TitrationApparatusProps> = ({
                 : 'bg-blue-600'
             }`}
           />
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-800">
-            Interactive Titration Bench
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-800">
+            Precision Analytical Titration Bench
           </span>
           <span className="text-xs font-mono text-slate-500 hidden sm:inline">
-            · HCl (aq) + NaOH (aq)
+            · 50.00 mL Class-A Glass Burette
           </span>
         </div>
 
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setShowLoupe(!showLoupe)}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
+              showLoupe
+                ? 'bg-blue-50 text-blue-800 border-blue-200'
+                : 'bg-white text-slate-600 hover:text-slate-900 border-slate-300'
+            }`}
+          >
+            <ZoomIn className="w-3 h-3" />
+            <span>{showLoupe ? 'Hide Loupe' : 'Meniscus Loupe'}</span>
+          </button>
+
+          <button
             onClick={onResetTitration}
             className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors cursor-pointer"
-            title="Refill burette to 0.00 mL and reset flask"
+            title="Refill burette to 0.00 mL"
           >
             <RotateCcw className="w-3 h-3" />
             <span>Refill Burette</span>
@@ -98,11 +171,11 @@ export const TitrationApparatus: React.FC<TitrationApparatusProps> = ({
         </div>
       </div>
 
-      {/* Main Split: Left = Visual Graphic Apparatus | Right = Telemetry & Addition Controls */}
-      <div className="p-4 sm:p-6 grid grid-cols-1 md:grid-cols-12 gap-6 items-stretch flex-1 bg-gradient-to-b from-slate-50/50 via-white to-slate-50/30">
-        {/* Visual Laboratory Glassware Column */}
-        <div className="md:col-span-6 flex flex-col items-center justify-center p-4 bg-slate-950 rounded-xl border border-slate-800 shadow-inner relative overflow-hidden min-h-[380px]">
-          {/* Scientific Lab Grid Lines */}
+      {/* Main Laboratory Bench Stage */}
+      <div className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch flex-1 bg-gradient-to-b from-slate-50/40 via-white to-slate-50/20">
+        {/* Left Column: Glassware SVG Apparatus & Meniscus Loupe */}
+        <div className="lg:col-span-6 flex flex-col items-center justify-between p-4 bg-slate-950 rounded-xl border border-slate-800 shadow-inner relative overflow-hidden min-h-[420px]">
+          {/* Subtle Precision Laboratory Grid */}
           <div
             className="absolute inset-0 pointer-events-none opacity-20"
             style={{
@@ -112,67 +185,86 @@ export const TitrationApparatus: React.FC<TitrationApparatusProps> = ({
             }}
           />
 
-          {/* SVG Apparatus Representation */}
+          {/* SVG Laboratory Apparatus */}
           <svg
-            className="w-full max-w-[280px] h-[340px] relative z-10"
+            className="w-full max-w-[280px] h-[330px] relative z-10"
             viewBox="0 0 280 340"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
           >
-            {/* Stand Base and Vertical Rod */}
+            {/* Stand Base and Vertical Steel Rod */}
             <rect x="20" y="325" width="240" height="10" rx="3" fill="#334155" stroke="#475569" strokeWidth="1" />
-            <rect x="55" y="15" width="10" height="310" rx="2" fill="#475569" stroke="#64748B" strokeWidth="1" />
+            <rect x="52" y="12" width="10" height="315" rx="2" fill="#475569" stroke="#64748B" strokeWidth="1" />
 
-            {/* Upper and Lower Burette Metal Clamps */}
-            <rect x="55" y="55" width="60" height="7" fill="#64748B" rx="1.5" />
-            <rect x="110" y="52" width="12" height="13" fill="#94A3B8" rx="2" />
-            <rect x="55" y="165" width="60" height="7" fill="#64748B" rx="1.5" />
-            <rect x="110" y="162" width="12" height="13" fill="#94A3B8" rx="2" />
+            {/* Burette Metal Clamps */}
+            <rect x="52" y="45" width="60" height="7" fill="#64748B" rx="1.5" />
+            <rect x="107" y="42" width="12" height="13" fill="#94A3B8" rx="2" />
+            <rect x="52" y="145" width="60" height="7" fill="#64748B" rx="1.5" />
+            <rect x="107" y="142" width="12" height="13" fill="#94A3B8" rx="2" />
 
-            {/* GLASS BURETTE TUBE (50 mL capacity) */}
-            <g id="burette">
+            {/* CLASS-A GLASS BURETTE TUBE (50 mL capacity, graduated downwards) */}
+            <g id="burette-assembly">
               {/* Outer glass cylinder */}
               <rect
-                x="112"
-                y="20"
-                width="18"
-                height="165"
+                x="110"
+                y="18"
+                width="20"
+                height="168"
                 rx="2"
                 fill="rgba(255, 255, 255, 0.08)"
                 stroke="#94A3B8"
                 strokeWidth="1.5"
               />
 
-              {/* Titrant Liquid Column (NaOH solution) */}
-              <rect
-                x="114"
-                y={22 + (160 * (1 - buretteLiquidHeightPercent / 100))}
-                width="14"
-                height={(160 * buretteLiquidHeightPercent) / 100}
-                fill="rgba(186, 230, 253, 0.45)"
-              />
-
-              {/* Meniscus Line */}
-              {remainingInBurette > 0 && (
-                <ellipse
-                  cx="121"
-                  cy={22 + (160 * (1 - buretteLiquidHeightPercent / 100))}
-                  rx="7"
-                  ry="2"
-                  fill="none"
-                  stroke="#38BDF8"
-                  strokeWidth="1.5"
+              {/* Titrant Liquid Column (NaOH solution in burette) */}
+              {liquidHeight > 0 && (
+                <rect
+                  x="112"
+                  y={meniscusSvgY}
+                  width="16"
+                  height={liquidHeight}
+                  fill="rgba(186, 230, 253, 0.45)"
                 />
               )}
 
-              {/* Burette Graduations and Labels */}
+              {/* Downward Concave Meniscus Curve */}
+              {remainingInBurette > 0 && (
+                <g>
+                  {/* Meniscus bottom curve */}
+                  <ellipse
+                    cx="120"
+                    cy={meniscusSvgY}
+                    rx="8"
+                    ry="2.5"
+                    fill="none"
+                    stroke="#38BDF8"
+                    strokeWidth="1.5"
+                  />
+                  {/* Optical pointer line to bottom of meniscus */}
+                  <line
+                    x1="94"
+                    y1={meniscusSvgY}
+                    x2="110"
+                    y2={meniscusSvgY}
+                    stroke="#F59E0B"
+                    strokeWidth="1"
+                    strokeDasharray="2 1"
+                  />
+                  <polygon
+                    points={`108,${meniscusSvgY - 2.5} 112,${meniscusSvgY} 108,${meniscusSvgY + 2.5}`}
+                    fill="#F59E0B"
+                  />
+                </g>
+              )}
+
+              {/* Graduated Scale Markings (0 mL at top, 50 mL at bottom) */}
               {[0, 10, 20, 30, 40, 50].map((mark, i) => {
-                const yPos = 25 + i * 29;
+                const yPos = 25 + i * 31;
                 return (
                   <g key={mark}>
-                    <line x1="126" y1={yPos} x2="130" y2={yPos} stroke="#E2E8F0" strokeWidth="1" />
+                    <line x1="124" y1={yPos} x2="129" y2={yPos} stroke="#E2E8F0" strokeWidth="1" />
                     <text
-                      x="134"
+                      x="133"
                       y={yPos + 3}
                       fill="#94A3B8"
                       fontSize="7"
@@ -186,167 +278,264 @@ export const TitrationApparatus: React.FC<TitrationApparatusProps> = ({
               })}
 
               {/* Stopcock valve assembly */}
-              <rect x="117" y="185" width="8" height="14" fill="#64748B" stroke="#94A3B8" strokeWidth="1" />
-              {/* Stopcock handle (turns when adding titrant) */}
+              <rect x="116" y="186" width="8" height="14" fill="#64748B" stroke="#94A3B8" strokeWidth="1" />
+              {/* Rotating stopcock handle */}
               <rect
-                x="112"
-                y="190"
+                x="111"
+                y="191"
                 width="18"
                 height="4"
                 rx="1"
                 fill={isDripping ? '#38BDF8' : '#CBD5E1'}
-                transform={isDripping ? 'rotate(45 121 192)' : 'rotate(0 121 192)'}
+                transform={isDripping ? 'rotate(45 120 193)' : 'rotate(0 120 193)'}
                 className="transition-transform duration-200"
               />
 
-              {/* Burette Tip nozzle */}
-              <polygon points="118,199 124,199 122,212 120,212" fill="#94A3B8" />
+              {/* Burette Nozzle Tip */}
+              <polygon points="117,200 123,200 121,213 119,213" fill="#94A3B8" />
             </g>
 
-            {/* ANIMATED LIQUID DROPLET (when adding titrant) */}
+            {/* ANIMATED LIQUID DROPLET (when dispensing) */}
             {isDripping && (
               <g className="animate-bounce">
-                <circle cx="121" cy="222" r="3" fill="#38BDF8" />
-                <path d="M121 217 L123 222 L119 222 Z" fill="#38BDF8" />
+                <circle cx="120" cy="222" r="3" fill="#38BDF8" />
+                <path d="M120 217 L122 222 L118 222 Z" fill="#38BDF8" />
               </g>
             )}
 
             {/* CONICAL ERLENMEYER FLASK (250 mL Pyrex) */}
-            <g id="flask">
-              {/* Flask Neck */}
+            <g id="flask-assembly">
+              {/* Flask Glass Outline */}
               <path
-                d="M 106 230 L 106 245 L 75 315 A 8 8 0 0 0 82 325 L 160 325 A 8 8 0 0 0 167 315 L 136 245 L 136 230 Z"
+                d="M 105 230 L 105 245 L 75 315 A 8 8 0 0 0 82 325 L 158 325 A 8 8 0 0 0 165 315 L 135 245 L 135 230 Z"
                 fill="rgba(255, 255, 255, 0.05)"
                 stroke="#E2E8F0"
                 strokeWidth="1.5"
               />
+              <ellipse cx="120" cy="230" rx="15" ry="3" fill="none" stroke="#E2E8F0" strokeWidth="1.5" />
 
-              {/* Flask Lip Rim */}
-              <ellipse cx="121" cy="230" rx="15" ry="3" fill="none" stroke="#E2E8F0" strokeWidth="1.5" />
-
-              {/* Flask Solution Liquid Level & Dynamic Color */}
-              <clipPath id="flask-clip">
-                <path d="M 106 245 L 75 315 A 8 8 0 0 0 82 325 L 160 325 A 8 8 0 0 0 167 315 L 136 245 Z" />
+              {/* Solution Liquid Level & Color Clip */}
+              <clipPath id="flask-solution-clip">
+                <path d="M 105 245 L 75 315 A 8 8 0 0 0 82 325 L 158 325 A 8 8 0 0 0 165 315 L 135 245 Z" />
               </clipPath>
 
-              {/* Base background water volume */}
+              {/* Water base solution */}
               <rect
                 x="70"
                 y={325 - flaskLiquidHeight}
-                width="105"
+                width="100"
                 height={flaskLiquidHeight}
                 fill="rgba(224, 242, 254, 0.3)"
-                clipPath="url(#flask-clip)"
+                clipPath="url(#flask-solution-clip)"
               />
 
-              {/* Phenolphthalein Color Tint - Dynamically driven strictly by chemicalState.indicatorColor */}
+              {/* Phenolphthalein Color Tint (Driven strictly by chemicalState.indicatorColor) */}
               <rect
                 x="70"
                 y={325 - flaskLiquidHeight}
-                width="105"
+                width="100"
                 height={flaskLiquidHeight}
                 fill={chemicalState.indicatorColor}
-                clipPath="url(#flask-clip)"
+                clipPath="url(#flask-solution-clip)"
                 className="transition-colors duration-300"
               />
 
-              {/* Liquid surface wave / meniscus */}
+              {/* Liquid surface ellipse */}
               <ellipse
-                cx="121"
+                cx="120"
                 cy={325 - flaskLiquidHeight}
-                rx={15 + flaskLiquidHeight * 0.45}
+                rx={15 + flaskLiquidHeight * 0.42}
                 ry="3"
                 fill={
                   chemicalState.pH >= 8.2
                     ? 'rgba(244, 114, 182, 0.7)'
                     : 'rgba(186, 230, 253, 0.6)'
                 }
-                clipPath="url(#flask-clip)"
+                clipPath="url(#flask-solution-clip)"
               />
 
-              {/* Magnetic stir bar in flask bottom */}
-              <rect x="113" y="318" width="16" height="4" rx="2" fill="#FFFFFF" stroke="#94A3B8" strokeWidth="1" />
+              {/* Magnetic stir bar */}
+              <rect x="112" y="318" width="16" height="4" rx="2" fill="#FFFFFF" stroke="#94A3B8" strokeWidth="1" />
             </g>
 
-            {/* COMBINATION pH SENSOR ELECTRODE */}
-            <g id="ph-electrode">
-              {/* Cable from meter */}
-              <path d="M 215 155 Q 165 170 148 230" fill="none" stroke="#475569" strokeWidth="2" strokeDasharray="3 2" />
-              {/* Glass electrode body dipping into flask */}
+            {/* COMBINATION pH ELECTRODE */}
+            <g id="electrode">
+              <path d="M 215 150 Q 165 170 148 230" fill="none" stroke="#475569" strokeWidth="2" strokeDasharray="3 2" />
               <rect x="145" y="232" width="6" height="75" rx="2" fill="#E2E8F0" stroke="#334155" strokeWidth="1" />
-              {/* Glass sensing bulb */}
               <circle cx="148" cy="308" r="4.5" fill="#38BDF8" stroke="#0284C7" strokeWidth="1" />
             </g>
 
-            {/* DIGITAL pH METER CONSOLE (Upper Right) */}
-            <g id="ph-meter">
-              <rect x="180" y="45" width="85" height="52" rx="4" fill="#0F172A" stroke="#334155" strokeWidth="1.5" />
-              <rect x="186" y="52" width="73" height="26" rx="2" fill="#020617" />
-              <text x="189" y="62" fill="#38BDF8" fontSize="7" fontFamily="monospace">
-                pH METER 25°C
+            {/* DIGITAL pH METER CONSOLE */}
+            <g id="meter">
+              <rect x="175" y="45" width="90" height="54" rx="4" fill="#0F172A" stroke="#334155" strokeWidth="1.5" />
+              <rect x="181" y="52" width="78" height="28" rx="2" fill="#020617" />
+              <text x="185" y="62" fill="#38BDF8" fontSize="7" fontFamily="monospace">
+                pH METER 25.0°C
               </text>
-              <text x="254" y="75" fill="#38BDF8" fontSize="13" fontFamily="monospace" fontWeight="bold" textAnchor="end">
-                {formatNumber(chemicalState.pH, 2)}
+              <text x="254" y="76" fill="#38BDF8" fontSize="13" fontFamily="monospace" fontWeight="bold" textAnchor="end">
+                {formatNumber(experimentalMeasuredPH, 2)}
               </text>
-              <circle cx="190" cy="88" r="3" fill="#10B981" />
-              <text x="198" y="90" fill="#94A3B8" fontSize="6" fontFamily="monospace">
-                CALIBRATED
+              <circle cx="187" cy="91" r="3" fill="#10B981" />
+              <text x="194" y="93" fill="#94A3B8" fontSize="6" fontFamily="monospace">
+                ±0.01 pH RESOLUTION
               </text>
             </g>
           </svg>
 
-          {/* Current Reading HUD Pill beneath apparatus */}
-          <div className="mt-3 flex items-center justify-between w-full px-3 py-1.5 bg-slate-900/90 border border-slate-800 rounded-lg text-xs font-mono text-slate-300">
-            <div>
-              Burette: <strong className="text-white">{formatNumber(buretteReading, 2)} mL</strong>
+          {/* MENISCUS MAGNIFIER / LOUPE CLOSE-UP VIEW */}
+          {showLoupe && (
+            <div className="w-full mt-2 p-2.5 bg-slate-900/90 border border-slate-700 rounded-lg flex items-center justify-between gap-3 text-white text-xs">
+              <div className="flex items-center gap-2">
+                <div className="w-10 h-10 rounded-full border-2 border-amber-400 bg-slate-950 flex flex-col items-center justify-center relative overflow-hidden shrink-0 shadow-inner">
+                  {/* Magnified glass ticks */}
+                  <div className="absolute inset-0 flex flex-col justify-around py-1 px-1">
+                    <div className="w-full h-px bg-slate-600" />
+                    <div className="w-3/4 h-px bg-slate-600" />
+                    <div className="w-full h-px bg-slate-600" />
+                    <div className="w-3/4 h-px bg-slate-600" />
+                    <div className="w-full h-px bg-slate-600" />
+                  </div>
+                  {/* Magnified concave meniscus */}
+                  <div className="w-8 h-2.5 border-b-2 border-cyan-400 rounded-b-full bg-cyan-900/40 relative z-10" />
+                  <div className="absolute top-1/2 w-full h-px bg-amber-400/80 pointer-events-none" />
+                </div>
+                <div>
+                  <div className="font-bold text-slate-200 flex items-center gap-1.5">
+                    <span>Meniscus Reading</span>
+                    <span className="text-[10px] text-amber-400 font-mono">
+                      (Read bottom of curve)
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-mono">
+                    Burette Scale: <strong>{formatNumber(experimentalBuretteReading, 2)} mL</strong> (±0.05 mL)
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-right text-[11px] font-mono text-slate-400">
+                Class-A ASTM E287
+              </div>
             </div>
-            <div>
-              Flask: <strong className="text-white">{formatNumber(flaskVolume, 2)} mL</strong>
-            </div>
-            <div>
-              pH: <strong className="text-blue-400">{formatNumber(chemicalState.pH, 2)}</strong>
-            </div>
-          </div>
+          )}
         </div>
 
-        {/* Right Column: Telemetry Readouts, Incremental Addition Controls & Observation Trigger */}
-        <div className="md:col-span-6 flex flex-col justify-between space-y-4">
-          {/* Key Instrument Telemetry Matrix */}
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="p-3 bg-white rounded-lg border border-slate-200 shadow-2xs">
-              <span className="text-[10px] font-mono text-slate-400 uppercase block mb-0.5">
-                Current Burette Reading
+        {/* Right Column: Burette Measurement HUD, Addition Controls, and Record Reading */}
+        <div className="lg:col-span-6 flex flex-col justify-between space-y-4">
+          {/* Complete Burette Volumetric Reading Matrix */}
+          <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-3">
+            <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-100">
+              <span className="font-bold uppercase tracking-wide text-slate-800 flex items-center gap-1.5">
+                <Sliders className="w-3.5 h-3.5 text-blue-700" />
+                <span>Virtual Burette Measurements</span>
               </span>
-              <div className="text-xl font-bold font-mono text-slate-900">
-                {formatNumber(buretteReading, 2)}{' '}
-                <span className="text-xs font-normal text-slate-500 font-sans">mL</span>
-              </div>
-              <span className="text-[10px] text-slate-500 font-mono">
-                Remaining: {formatNumber(remainingInBurette, 2)} mL
+              <span className="font-mono text-slate-400 text-[11px]">
+                Vol Delivered: ΔV = V_curr - V_init
               </span>
             </div>
 
-            <div className="p-3 bg-white rounded-lg border border-slate-200 shadow-2xs">
-              <span className="text-[10px] font-mono text-slate-400 uppercase block mb-0.5">
-                Digital pH Readout
-              </span>
-              <div className="text-xl font-bold font-mono text-blue-700">
-                {formatNumber(chemicalState.pH, 2)}{' '}
-                <span className="text-xs font-normal text-slate-500 font-sans">pH</span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              {/* Initial Reading */}
+              <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
+                <span className="text-[10px] font-mono text-slate-500 uppercase block mb-0.5">
+                  Initial Reading (V_init)
+                </span>
+                <div className="text-sm font-bold font-mono text-slate-800">
+                  {formatNumber(initialBuretteReading, 2)} mL
+                </div>
+                <span className="text-[10px] text-slate-400 font-mono">Top fill mark</span>
               </div>
-              <span className="text-[10px] text-slate-500 font-mono">
-                pOH: {formatNumber(chemicalState.pOH, 2)}
-              </span>
+
+              {/* Current Reading */}
+              <div className="p-2.5 bg-blue-50/60 rounded-lg border border-blue-200">
+                <span className="text-[10px] font-mono text-blue-700 uppercase block mb-0.5 font-semibold">
+                  Current Reading (V_curr)
+                </span>
+                <div className="text-base font-extrabold font-mono text-blue-900">
+                  {formatNumber(experimentalBuretteReading, 2)} mL
+                </div>
+                <span className="text-[10px] text-blue-600 font-mono">Burette scale</span>
+              </div>
+
+              {/* Volume Delivered */}
+              <div className="p-2.5 bg-emerald-50/60 rounded-lg border border-emerald-200">
+                <span className="text-[10px] font-mono text-emerald-700 uppercase block mb-0.5 font-semibold">
+                  Volume Delivered (ΔV)
+                </span>
+                <div className="text-base font-extrabold font-mono text-emerald-900">
+                  {formatNumber(experimentalDeliveredVolume, 2)} mL
+                </div>
+                <span className="text-[10px] text-emerald-600 font-mono">Added to flask</span>
+              </div>
+
+              {/* Final Reading / Status */}
+              <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
+                <span className="text-[10px] font-mono text-slate-500 uppercase block mb-0.5">
+                  Remaining in Tube
+                </span>
+                <div className="text-sm font-bold font-mono text-slate-800">
+                  {formatNumber(remainingInBurette, 2)} mL
+                </div>
+                <span className="text-[10px] text-slate-400 font-mono">Capacity 50 mL</span>
+              </div>
+            </div>
+
+            {/* Experimental Uncertainty vs Theoretical Value Banner */}
+            <div className="pt-1">
+              <button
+                onClick={() => setShowUncertaintyDetails(!showUncertaintyDetails)}
+                className="w-full text-left flex items-center justify-between text-[11px] font-mono text-slate-600 hover:text-slate-900 py-1 cursor-pointer"
+              >
+                <span className="flex items-center gap-1 text-slate-700 font-semibold">
+                  <Info className="w-3.5 h-3.5 text-blue-700" />
+                  <span>Instrument Uncertainty & Theoretical Model Values</span>
+                </span>
+                {showUncertaintyDetails ? (
+                  <ChevronUp className="w-3.5 h-3.5" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5" />
+                )}
+              </button>
+
+              {showUncertaintyDetails && (
+                <div className="mt-2 p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-1.5 animate-fadeIn">
+                  <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
+                    <div>
+                      <span className="text-slate-500">Burette Tolerance:</span>{' '}
+                      <strong>±0.05 mL (Class-A)</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">pH Electrode Resolution:</span>{' '}
+                      <strong>±0.01 pH unit</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Volumetric Pipette:</span>{' '}
+                      <strong>25.00 ± 0.03 mL</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Combined Exp. Uncertainty:</span>{' '}
+                      <strong>±0.06 mL (k=2)</strong>
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-600">
+                      Theoretical Equivalence Point:
+                    </span>
+                    <span className="font-mono font-bold text-slate-800">
+                      {formatNumber(chemicalState.theoreticalEquivalenceVolumeMl, 2)} mL
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Indicator Visual Status Display */}
+          {/* Indicator State Card */}
           <div className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="font-semibold text-slate-800 flex items-center gap-1.5">
                 <span>Phenolphthalein Indicator State</span>
               </span>
-              <span className="font-mono text-[11px] text-slate-500">Range: pH 8.2–10.0</span>
+              <span className="font-mono text-[11px] text-slate-500">Transition: pH 8.2–10.0</span>
             </div>
 
             <div className="flex items-center gap-3">
@@ -377,7 +566,7 @@ export const TitrationApparatus: React.FC<TitrationApparatusProps> = ({
                 <Droplet className="w-3.5 h-3.5 text-blue-600" />
                 <span>Dispense Titrant (0.1000 M NaOH)</span>
               </span>
-              <span className="font-mono text-slate-400 text-[11px]">Stopcock Control</span>
+              <span className="font-mono text-slate-400 text-[11px]">PTFE Stopcock</span>
             </div>
 
             {/* Fine Additions */}
@@ -442,14 +631,62 @@ export const TitrationApparatus: React.FC<TitrationApparatusProps> = ({
             </div>
           </div>
 
-          {/* Primary Action Button: Record Observation to Table */}
-          <button
-            onClick={onRecordObservation}
-            className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <PlusCircle className="w-4 h-4 text-blue-400" />
-            <span>Record Measurement to Observation Table</span>
-          </button>
+          {/* MANUAL OBSERVATION RECORDING CONTROL */}
+          <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-3">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold uppercase tracking-wide text-slate-800 flex items-center gap-1.5">
+                <PlusCircle className="w-3.5 h-3.5 text-blue-700" />
+                <span>Manual Observation Recording</span>
+              </span>
+              <span className="font-mono text-slate-500 text-[11px]">
+                {totalRecordsCount} Trials Logged
+              </span>
+            </div>
+
+            {/* Quick Note / Milestone Selector */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                'Baseline 0.00 mL',
+                'Pre-equivalence',
+                'Dropwise addition',
+                'Faint pale pink endpoint',
+                'Post-equivalence plateau',
+              ].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => {
+                    setSelectedNote(preset);
+                    if (preset.includes('endpoint')) {
+                      setIsMarkingEndpoint(true);
+                    }
+                  }}
+                  className={`text-[11px] px-2 py-0.5 rounded border transition-colors cursor-pointer ${
+                    selectedNote === preset
+                      ? 'bg-blue-100 border-blue-300 text-blue-900 font-semibold'
+                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleRecord}
+                className="flex-1 py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4 text-blue-400" />
+                <span>Record Reading to Observation Table</span>
+              </button>
+            </div>
+
+            <p className="text-[11px] text-slate-500 text-center font-mono">
+              Saves: Burette {formatNumber(experimentalBuretteReading, 2)} mL · Delivered{' '}
+              {formatNumber(experimentalDeliveredVolume, 2)} mL · pH {formatNumber(experimentalMeasuredPH, 2)} · {chemicalState.indicatorLabel}
+            </p>
+          </div>
         </div>
       </div>
 

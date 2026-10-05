@@ -13,11 +13,15 @@ export default defineConfig(({ command }) => {
       {
         name: 'github-pages-spa',
         closeBundle() {
-          const rootDir = import.meta.dirname || path.resolve();
+          const rootDir = process.cwd();
           const distDir = path.resolve(rootDir, 'dist');
           const indexPath = path.join(distDir, 'index.html');
           const fallbackPath = path.join(distDir, '404.html');
           const noJekyllPath = path.join(distDir, '.nojekyll');
+
+          if (!fs.existsSync(distDir)) {
+            fs.mkdirSync(distDir, { recursive: true });
+          }
 
           // Ensure .nojekyll exists so GitHub Pages does not run Jekyll
           if (!fs.existsSync(noJekyllPath)) {

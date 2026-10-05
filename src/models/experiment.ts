@@ -37,6 +37,8 @@ export interface ObservationRecord {
   trialNumber: number;
   values: Record<string, number>;
   notes?: string;
+  indicatorLabel?: string;
+  isEndpointTrial?: boolean;
 }
 
 export interface CalculationMetricDefinition {

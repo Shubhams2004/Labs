@@ -15,6 +15,7 @@ interface DataAnalysisGraphProps {
   records: ObservationRecord[];
   graphConfig?: ExperimentGraphConfig;
   experimentId?: string;
+  endpointVolume?: number | null;
 }
 
 export const DataAnalysisGraph: React.FC<DataAnalysisGraphProps> = ({
@@ -22,6 +23,7 @@ export const DataAnalysisGraph: React.FC<DataAnalysisGraphProps> = ({
   records,
   graphConfig,
   experimentId,
+  endpointVolume,
 }) => {
   // Default to graphConfig or first two numeric columns
   const defaultX = graphConfig?.xAxis.columnId || (columns[0] ? columns[0].id : '');
@@ -232,21 +234,65 @@ export const DataAnalysisGraph: React.FC<DataAnalysisGraphProps> = ({
             </defs>
             <rect x="60" y="25" width="510" height="190" fill="url(#chart-grid)" />
 
-            {/* Equivalence Marker at V = 25 mL */}
+            {/* Theoretical Equivalence Marker at V = 25 mL */}
             {xColId === 'volume' && (
               <g>
                 {(() => {
-                  const { svgX } = mapToSvg(25.0, 7.0);
+                  const { svgX, svgY } = mapToSvg(25.0, 7.0);
                   return (
-                    <line
-                      x1={svgX}
-                      y1="25"
-                      x2={svgX}
-                      y2="215"
-                      stroke="#475569"
-                      strokeWidth="1"
-                      strokeDasharray="3 3"
-                    />
+                    <>
+                      <line
+                        x1={svgX}
+                        y1="25"
+                        x2={svgX}
+                        y2="215"
+                        stroke="#94A3B8"
+                        strokeWidth="1.5"
+                        strokeDasharray="3 3"
+                      />
+                      <circle cx={svgX} cy={svgY} r="4" fill="#94A3B8" />
+                      <text
+                        x={svgX + 4}
+                        y="36"
+                        fill="#94A3B8"
+                        fontSize="8"
+                        fontFamily="monospace"
+                      >
+                        V_eq (25.0 mL)
+                      </text>
+                    </>
+                  );
+                })()}
+              </g>
+            )}
+
+            {/* Experimental Endpoint Marker (if determined) */}
+            {xColId === 'volume' && endpointVolume !== null && endpointVolume !== undefined && (
+              <g>
+                {(() => {
+                  const { svgX } = mapToSvg(endpointVolume, 7.0);
+                  return (
+                    <>
+                      <line
+                        x1={svgX}
+                        y1="25"
+                        x2={svgX}
+                        y2="215"
+                        stroke="#F59E0B"
+                        strokeWidth="2"
+                        strokeDasharray="4 2"
+                      />
+                      <text
+                        x={svgX + 4}
+                        y="48"
+                        fill="#F59E0B"
+                        fontSize="8"
+                        fontFamily="monospace"
+                        fontWeight="bold"
+                      >
+                        Exp. Endpoint ({formatNumber(endpointVolume, 2)} mL)
+                      </text>
+                    </>
                   );
                 })()}
               </g>
@@ -369,15 +415,25 @@ export const DataAnalysisGraph: React.FC<DataAnalysisGraphProps> = ({
 
         {/* Legend Ribbon beneath graph */}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-4 text-xs font-mono text-slate-600 px-1">
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded-full bg-sky-500 border border-white" />
-              <span>Recorded Observations</span>
+              <span>User-Recorded Observations</span>
             </div>
             {theoreticalPoints.length > 0 && (
               <div className="flex items-center gap-1.5 text-slate-500">
                 <span className="w-4 h-0.5 bg-slate-400 border-t border-dashed border-slate-400" />
-                <span>Theoretical Neutralization Model</span>
+                <span>Theoretical Neutralization Curve</span>
+              </div>
+            )}
+            <div className="flex items-center gap-1.5 text-slate-500">
+              <span className="w-3 h-0.5 bg-slate-400 border-t border-dashed border-slate-400" />
+              <span>Theoretical Equivalence (25.00 mL)</span>
+            </div>
+            {endpointVolume !== null && endpointVolume !== undefined && (
+              <div className="flex items-center gap-1.5 text-amber-600 font-semibold">
+                <span className="w-3 h-0.5 bg-amber-500 border-t border-dashed border-amber-500" />
+                <span>Experimental Endpoint ({formatNumber(endpointVolume, 2)} mL)</span>
               </div>
             )}
           </div>
